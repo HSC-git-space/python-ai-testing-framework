@@ -37,4 +37,4 @@ class EvalResult(BaseModel):
     overall_passed: bool = False
 
     # Overall aggregate score across all evaluators
-    overall
+    overall_score: float = 0.0
