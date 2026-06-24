@@ -64,7 +64,10 @@ def test_partial_hallucination(hallucination_evaluator):
             "Water boils at 100 degrees Celsius"
         ]
     )
-    response = "The capital of France is Paris. Water boils at 90 degrees."
+    # Response contradicts Paris fact — says Lyon instead
+    # Water boiling fact is not addressed at all
+    # Evaluator should detect at least one unsupported fact
+    response = "The capital of France is Lyon."
 
     score = hallucination_evaluator.evaluate(response, request)
 
