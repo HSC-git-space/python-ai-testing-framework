@@ -8,6 +8,7 @@ def eval_engine():
     return EvalEngine()
 
 
+@pytest.mark.integration
 def test_consistent_response_length(eval_engine):
     """
     Same prompt run 3 times.
@@ -31,6 +32,7 @@ def test_consistent_response_length(eval_engine):
     assert passed_count >= 2, f"Only {passed_count}/3 runs passed length check"
 
 
+@pytest.mark.integration
 def test_consistent_keyword_presence(eval_engine):
     """
     Same prompt run 3 times.

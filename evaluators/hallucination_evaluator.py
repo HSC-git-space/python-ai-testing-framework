@@ -1,5 +1,3 @@
-# evaluators/hallucination_evaluator.py
-
 import re
 
 from evaluators.base_evaluator import BaseEvaluator
@@ -9,37 +7,30 @@ from models.eval_result import EvaluatorScore
 
 class HallucinationEvaluator(BaseEvaluator):
     """
-    Checks a response against a list of ground_truth facts (request.ground_truth:
-    List[str]) to catch unsupported or contradicted claims.
+    Checks a response against ground_truth facts to catch unsupported claims.
 
-    This is RULE-BASED, not ML-based. It is NOT a real hallucination detector
-    in the research sense (no NLI model, no semantic entailment, no RAGAS-style
-    faithfulness scoring). It can only catch two narrow signals:
+    Rule-based — not ML. Two signals:
+    1. Key content words from the fact must appear in the response
+    2. Negation words alongside fact words may indicate contradiction
 
-      1. Omission — a ground truth fact's key words don't appear in the
-         response at all (the response simply didn't address it).
-      2. Naive negation — a fact's words mostly appear, but a negation word
-         (not, isn't, never, didn't) also appears somewhere in the response,
-         which MIGHT indicate the fact was contradicted.
-
-    KNOWN LIMITATION (important for interviews): this evaluator misses
-    paraphrased contradictions. If ground truth says "the meeting is on
-    Tuesday" and the response says "the meeting is definitely on a different
-    day," there's no shared negation word and no overlapping fact words to
-    flag — this evaluator would call that "unsupported" at best, not
-    "contradicted," and could miss it entirely if enough other words overlap.
-    Catching that class of error requires semantic entailment (NLI models)
-    or LLM-as-judge approaches, not substring/word-overlap heuristics.
-    This gap is the entire reason hallucination detection is a research
-    problem and not a solved string-matching problem.
-
-    Only fires when request.ground_truth is non-empty.
-    Score = supported_facts / total_facts. Any detected contradiction
-    forces score to 0.0 — a contradiction is worse than an omission.
+    KNOWN LIMITATION: misses paraphrased contradictions. If ground truth says
+    "the meeting is on Tuesday" and response says "the meeting is on a different day"
+    — no shared negation word, so this evaluator misses it. Catching that class
+    of error requires NLI models or LLM-as-judge, not string matching.
+    This gap is why hallucination detection is a research problem, not a solved one.
     """
 
-    WORD_OVERLAP_THRESHOLD = 0.7
-    NEGATION_WORDS = ["not", "isn't", "wasn't", "never", "didn't", "doesn't", "no longer", "cannot", "can't"]
+    # Stop words — these are ignored when checking key content words
+    STOP_WORDS = {
+        "the", "a", "an", "is", "are", "was", "were", "of", "in", "on",
+        "at", "to", "for", "and", "or", "but", "it", "its", "be", "been",
+        "has", "have", "had", "this", "that", "with", "from", "by"
+    }
+
+    NEGATION_WORDS = [
+        "not", "isn't", "wasn't", "never", "didn't",
+        "doesn't", "no longer", "cannot", "can't"
+    ]
 
     def evaluate(self, response: str, request: EvalRequest) -> EvaluatorScore:
         facts = request.ground_truth or []
@@ -60,17 +51,20 @@ class HallucinationEvaluator(BaseEvaluator):
         unsupported_facts = []
 
         for fact in facts:
-            fact_words = set(re.findall(r"\w+", fact.lower()))
-            if not fact_words:
+            # Extract only content words — strip stop words
+            all_words = set(re.findall(r"\w+", fact.lower()))
+            content_words = all_words - self.STOP_WORDS
+
+            if not content_words:
+                supported_count += 1
                 continue
 
-            matched_words = sum(1 for w in fact_words if w in response_lower)
-            overlap_ratio = matched_words / len(fact_words)
+            # ALL content words must appear in the response
+            matched = sum(1 for w in content_words if w in response_lower)
+            overlap_ratio = matched / len(content_words)
 
-            if overlap_ratio >= self.WORD_OVERLAP_THRESHOLD:
+            if overlap_ratio >= 0.8:
                 supported_count += 1
-                # Fact's words are present, but response also contains negation —
-                # narrow, explainable signal that this MIGHT be a contradiction
                 if response_has_negation:
                     contradiction_found = True
             else:
@@ -81,8 +75,8 @@ class HallucinationEvaluator(BaseEvaluator):
                 evaluator_name="hallucination_evaluator",
                 score=0.0,
                 passed=False,
-                reason="Possible contradiction detected: a ground truth fact's words "
-                       "are present alongside a negation word in the response"
+                reason="Possible contradiction detected: ground truth fact words "
+                       "present alongside negation in response"
             )
 
         score = supported_count / len(facts)

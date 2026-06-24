@@ -8,6 +8,7 @@ def eval_engine():
     return EvalEngine()
 
 
+@pytest.mark.integration
 def test_consistency_same_prompt(eval_engine):
     """
     Runs consistency check on a factual prompt.
@@ -31,6 +32,7 @@ def test_consistency_same_prompt(eval_engine):
     assert score.score >= 0.6
 
 
+@pytest.mark.integration
 def test_consistency_factual_prompt(eval_engine):
     """
     Tests that a factual science prompt returns
