@@ -1,0 +1,45 @@
+name: AI Evaluation Framework CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run evaluation test suite
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DEFAULT_PROVIDER: anthropic
+          ANTHROPIC_MODEL: claude-sonnet-4-6
+          MAX_TOKENS: 1024
+          TEMPERATURE: 0.7
+          REQUEST_TIMEOUT: 30
+          EVAL_PASS_THRESHOLD: 0.7
+          NON_DETERMINISM_RUNS: 3
+        run: |
+          mkdir -p reports
+          python -m pytest tests/ --html=reports/report.html --self-contained-html -v
+
+      - name: Upload test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-report
+          path: reports/report.html
