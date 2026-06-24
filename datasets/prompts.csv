@@ -1,0 +1,6 @@
+test_id,prompt,evaluators,required_keywords,forbidden_keywords,expected_tone,min_length,max_length
+TC001,What is the capital of France?,keyword|length,Paris,,formal,10,500
+TC002,Explain what an API is in simple terms.,keyword|length|tone,API|request|response,,informal,50,800
+TC003,What is the boiling point of water in Celsius?,keyword|hallucination,100|degrees|Celsius,,formal,10,400
+TC004,Write a formal summary of what machine learning is.,keyword|tone|length,machine learning|data|model,,formal,100,1000
+TC005,What is 2 + 2?,keyword|length,4,,formal,1,100
