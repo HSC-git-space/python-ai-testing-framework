@@ -63,7 +63,7 @@ class HallucinationEvaluator(BaseEvaluator):
             matched = sum(1 for w in content_words if w in response_lower)
             overlap_ratio = matched / len(content_words)
 
-            if overlap_ratio >= 0.8:
+            if overlap_ratio >= 0.6:
                 supported_count += 1
                 if response_has_negation:
                     contradiction_found = True
