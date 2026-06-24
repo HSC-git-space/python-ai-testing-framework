@@ -33,7 +33,7 @@ class ConsistencyEvaluator(BaseEvaluator):
     an acceptable class across repeated runs.
     """
 
-    def evaluate(self, request: EvalRequest, response: str) -> EvaluatorScore:
+    def evaluate(self, response: str, request: EvalRequest) -> EvaluatorScore:
         raise NotImplementedError(
             "ConsistencyEvaluator does not support single-response evaluation. "
             "Call evaluate_consistency(request, responses, classifier_fn) instead."

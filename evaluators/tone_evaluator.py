@@ -39,7 +39,7 @@ class ToneEvaluator(BaseEvaluator):
 
     PASS_THRESHOLD = 0.6
 
-    def evaluate(self, request: EvalRequest, response: str) -> EvaluatorScore:
+    def evaluate(self, response: str, request: EvalRequest) -> EvaluatorScore:
         expected_tone = request.expected_tone
 
         if not expected_tone:

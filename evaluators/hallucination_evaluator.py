@@ -41,7 +41,7 @@ class HallucinationEvaluator(BaseEvaluator):
     WORD_OVERLAP_THRESHOLD = 0.7
     NEGATION_WORDS = ["not", "isn't", "wasn't", "never", "didn't", "doesn't", "no longer", "cannot", "can't"]
 
-    def evaluate(self, request: EvalRequest, response: str) -> EvaluatorScore:
+    def evaluate(self, response: str, request: EvalRequest) -> EvaluatorScore:
         facts = request.ground_truth or []
 
         if not facts:

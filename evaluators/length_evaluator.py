@@ -20,7 +20,7 @@ class LengthEvaluator(BaseEvaluator):
     but returning a graded score object instead of throwing on failure.
     """
 
-    def evaluate(self, request: EvalRequest, response: str) -> EvaluatorScore:
+    def evaluate(self, response: str, request: EvalRequest) -> EvaluatorScore:
         min_length = request.min_length
         max_length = request.max_length
 

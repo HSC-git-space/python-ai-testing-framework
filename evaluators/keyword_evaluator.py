@@ -20,7 +20,7 @@ class KeywordEvaluator(BaseEvaluator):
     substrings, but returns a graded score object instead of a boolean assert.
     """
 
-    def evaluate(self, request: EvalRequest, response: str) -> EvaluatorScore:
+    def evaluate(self, response: str, request: EvalRequest) -> EvaluatorScore:
         response_lower = response.lower()
 
         # Forbidden keywords are a hard fail — checked first, short-circuits everything else

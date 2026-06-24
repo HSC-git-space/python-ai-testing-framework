@@ -1,5 +1,3 @@
-# engine/eval_engine.py
-
 from typing import Dict, List
 
 from models.eval_request import EvalRequest
@@ -17,6 +15,7 @@ from evaluators import (
     HallucinationEvaluator,
 )
 from evaluators.consistency_evaluator import ConsistencyEvaluator
+from config.config import OPENAI_API_KEY
 
 
 class EvalEngine:
@@ -40,16 +39,21 @@ class EvalEngine:
     """
 
     def __init__(self):
+        # Anthropic always initialised — it is the primary provider
         self.providers: Dict[str, BaseProvider] = {
             "anthropic": AnthropicProvider(),
-            "openai": OpenAIProvider(),
         }
 
+        # OpenAI only initialised if key is available — prevents CI failure
+        # when OPENAI_API_KEY secret is not configured
+        if OPENAI_API_KEY:
+            self.providers["openai"] = OpenAIProvider()
+
         self.evaluators: Dict[str, BaseEvaluator] = {
-            "keyword_evaluator": KeywordEvaluator(),
-            "length_evaluator": LengthEvaluator(),
-            "tone_evaluator": ToneEvaluator(),
-            "hallucination_evaluator": HallucinationEvaluator(),
+            "keyword": KeywordEvaluator(),
+            "length": LengthEvaluator(),
+            "tone": ToneEvaluator(),
+            "hallucination": HallucinationEvaluator(),
         }
 
         # Held separately — not part of the standard evaluate() loop
@@ -76,7 +80,6 @@ class EvalEngine:
             evaluator = self.evaluators.get(evaluator_name)
 
             if evaluator is None:
-                # Unknown/misconfigured evaluator name — hard fail, don't silently skip
                 evaluator_scores.append(
                     EvaluatorScore(
                         evaluator_name=evaluator_name,
@@ -87,13 +90,13 @@ class EvalEngine:
                 )
                 continue
 
-            evaluator_scores.append(evaluator.evaluate(request, response_text))
+            # response first, request second — matches BaseEvaluator.evaluate() signature
+            evaluator_scores.append(evaluator.evaluate(response_text, request))
 
         if evaluator_scores:
             overall_score = sum(s.score for s in evaluator_scores) / len(evaluator_scores)
             overall_passed = all(s.passed for s in evaluator_scores)
         else:
-            # No evaluators configured at all — response was fetched but nothing was checked
             overall_score = 1.0
             overall_passed = True
 

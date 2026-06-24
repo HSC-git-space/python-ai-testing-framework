@@ -18,7 +18,7 @@ class BaseEvaluator(ABC):
     """
 
     @abstractmethod
-    def evaluate(self, request: EvalRequest, response: str) -> EvaluatorScore:
+    def evaluate(self, response: str, request: EvalRequest) -> EvaluatorScore:
         """
         Evaluate a single LLM response against the criteria in the request.
 
