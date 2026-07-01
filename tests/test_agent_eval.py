@@ -3,14 +3,6 @@ test_agent_eval.py
 
 Proves the AgentEvaluator actually catches correct vs incorrect agent
 behavior. Runs entirely offline against MockAgent -- no API key needed.
-
-Two categories of test:
-1. Using run_agent() directly -- realistic traces produced by MockAgent
-   for real user inputs.
-2. Hand-built fake traces -- deliberately broken (wrong tool, wrong
-   argument, wrong order, ungrounded answer) to prove each check method
-   actually fails when it should. A test suite that only ever sees
-   correct traces cannot prove the evaluator detects problems.
 """
 
 from agent.agent_runner import run_agent
@@ -18,8 +10,6 @@ from agent.agent_evaluator import AgentEvaluator
 
 
 def test_correct_weather_query():
-    """A straightforward weather query should call weather_tool correctly
-    and produce a final answer grounded in the tool output."""
     result = run_agent("What is the weather in Mumbai?")
     evaluator = AgentEvaluator()
 
@@ -36,7 +26,6 @@ def test_correct_weather_query():
 
 
 def test_correct_temperature_query():
-    """Temperature query should call temperature_tool with the right city."""
     result = run_agent("What is the temperature in Delhi?")
     evaluator = AgentEvaluator()
 
@@ -53,10 +42,6 @@ def test_correct_temperature_query():
 
 
 def test_tool_selection_catches_wrong_tool():
-    """
-    Hand-built trace where the agent called population_tool but weather_tool
-    was expected. check_tool_selection must fail this.
-    """
     evaluator = AgentEvaluator()
     fake_trace = [
         {"tool_name": "population_tool", "tool_input": {"city": "Mumbai"}, "tool_output": 20411000},
@@ -72,10 +57,6 @@ def test_tool_selection_catches_wrong_tool():
 
 
 def test_argument_correctness_catches_wrong_city():
-    """
-    Hand-built trace where the right tool was called but with the wrong
-    city argument. check_argument_correctness must fail this.
-    """
     evaluator = AgentEvaluator()
     fake_trace = [
         {"tool_name": "weather_tool", "tool_input": {"city": "Delhi"}, "tool_output": "Clear skies"},
@@ -91,10 +72,6 @@ def test_argument_correctness_catches_wrong_city():
 
 
 def test_argument_correctness_catches_case_mismatch():
-    """
-    Lowercase city name should fail, since tools.py lookups are case
-    sensitive. This is a real bug class the evaluator must catch.
-    """
     evaluator = AgentEvaluator()
     fake_trace = [
         {"tool_name": "weather_tool", "tool_input": {"city": "mumbai"}, "tool_output": "Weather data unavailable for mumbai"},
@@ -109,10 +86,6 @@ def test_argument_correctness_catches_case_mismatch():
 
 
 def test_sequence_catches_wrong_order():
-    """
-    Hand-built trace with two correct tool calls but in the wrong order.
-    check_sequence must fail this even though tool selection would pass.
-    """
     evaluator = AgentEvaluator()
     fake_trace = [
         {"tool_name": "temperature_tool", "tool_input": {"city": "Delhi"}, "tool_output": 38.0},
@@ -124,19 +97,13 @@ def test_sequence_catches_wrong_order():
         expected_order=["temperature_tool", "temperature_tool"],
     )
 
-    # NOTE: this specific case actually passes, since both entries are the
-    # same tool name -- sequence checks tool_name order, not arguments.
-    # This test documents that limitation rather than hiding it.
+    # NOTE: this passes because check_sequence only compares tool_name
+    # order, not arguments -- both entries share the same name. Documented
+    # limitation, not hidden.
     assert score.passed
 
 
 def test_final_answer_grounding_catches_hallucinated_number():
-    """
-    Hand-built trace where the tool correctly returned one temperature,
-    but the final answer states a different number. This is the exact
-    bug class this check exists to catch -- correct tool call, wrong
-    final answer.
-    """
     evaluator = AgentEvaluator()
     fake_trace = [
         {"tool_name": "temperature_tool", "tool_input": {"city": "Mumbai"}, "tool_output": 32.5},
@@ -153,8 +120,6 @@ def test_final_answer_grounding_catches_hallucinated_number():
 
 
 def test_final_answer_grounding_passes_when_correct():
-    """Sanity check: grounding check passes when the answer does contain
-    the tool's actual output value."""
     evaluator = AgentEvaluator()
     fake_trace = [
         {"tool_name": "temperature_tool", "tool_input": {"city": "Mumbai"}, "tool_output": 32.5},
@@ -171,8 +136,62 @@ def test_final_answer_grounding_passes_when_correct():
 
 
 def test_no_city_identified():
-    """When no known city is mentioned, MockAgent should call no tools
-    and return a fallback answer."""
     result = run_agent("What is the meaning of life?")
     assert result["trace"] == []
     assert "could not identify" in result["final_answer"].lower()
+
+
+def test_city_order_follows_input_not_hardcoded_list():
+    """
+    Regression test for the ordering bug: Mumbai comes first in
+    KNOWN_CITIES, but if the user mentions Delhi first in the sentence,
+    the trace should reflect Delhi first.
+    """
+    result = run_agent("What is the temperature in Delhi and Mumbai?")
+    cities_in_trace_order = [step["tool_input"]["city"] for step in result["trace"]]
+
+    assert cities_in_trace_order[0] == "Delhi"
+    assert cities_in_trace_order[1] == "Mumbai"
+
+
+def test_temperature_comparison_calls_both_cities_in_order():
+    result = run_agent("Compare the temperature difference between Mumbai and Delhi")
+
+    assert len(result["trace"]) == 2
+    assert result["trace"][0]["tool_name"] == "temperature_tool"
+    assert result["trace"][1]["tool_name"] == "temperature_tool"
+    assert result["trace"][0]["tool_input"]["city"] == "Mumbai"
+    assert result["trace"][1]["tool_input"]["city"] == "Delhi"
+
+
+def test_temperature_comparison_final_answer_grounded_in_both_values():
+    result = run_agent("Compare the temperature difference between Mumbai and Delhi")
+    evaluator = AgentEvaluator()
+
+    score = evaluator.check_final_answer_uses_tool_output(
+        trace=result["trace"],
+        final_answer=result["final_answer"],
+    )
+
+    assert score.passed, f"Grounding check failed: {score.reason}"
+
+
+def test_sequence_check_catches_wrong_order_in_comparison_scenario():
+    """
+    Documented limitation: check_sequence only compares tool_name order,
+    not arguments, so this hand-built swapped-city trace still passes.
+    Left as a known gap to flag as a future improvement, not silently
+    hidden.
+    """
+    evaluator = AgentEvaluator()
+    fake_trace = [
+        {"tool_name": "temperature_tool", "tool_input": {"city": "Mumbai"}, "tool_output": 32.5},
+        {"tool_name": "temperature_tool", "tool_input": {"city": "Delhi"}, "tool_output": 38.0},
+    ]
+
+    score = evaluator.check_sequence(
+        trace=fake_trace,
+        expected_order=["temperature_tool", "temperature_tool"],
+    )
+
+    assert score.passed
