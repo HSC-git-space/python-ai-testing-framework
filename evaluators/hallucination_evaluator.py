@@ -65,6 +65,7 @@ class HallucinationEvaluator(BaseEvaluator):
 
             if overlap_ratio >= 0.6:
                 supported_count += 1
+
                 if response_has_negation:
                     contradiction_found = True
             else:

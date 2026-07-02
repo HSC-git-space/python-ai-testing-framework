@@ -29,5 +29,13 @@ class EvalRequest(BaseModel):
     # Ground truth facts for hallucination detection
     ground_truth: Optional[List[str]] = Field(default_factory=list)
 
+    # Retrieved context/documents the response should be grounded in,
+    # used by faithfulness and relevance evaluators (RAGAS-lite).
+    # Distinct from ground_truth: ground_truth checks factual correctness
+    # against reality; context checks whether the response is consistent
+    # with what it was actually given to work from, regardless of
+    # whether that context is itself correct.
+    retrieved_context: Optional[List[str]] = Field(default_factory=list)
+
     # Test identifier — useful in batch eval runs and reports
     test_id: Optional[str] = None
