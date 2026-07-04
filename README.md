@@ -19,7 +19,7 @@ This framework is built around that mental model.
 ## What Is Built
 
 - A provider abstraction layer so evaluation logic works with any LLM - currently Anthropic Claude and OpenAI
-- Nine evaluation modules - keyword presence, response length, tone classification, output consistency, rule-based hallucination detection, LLM-as-judge semantic evaluation, and a RAGAS-lite trio (faithfulness, answer relevance, context relevance) for RAG pipeline evaluation
+- Ten evaluation modules - keyword presence, response length, tone classification, output consistency, rule-based hallucination detection, LLM-as-judge semantic evaluation, a RAGAS-lite trio (faithfulness, answer relevance, context relevance) for RAG pipeline evaluation, and an embedding-based semantic relevance evaluator that upgrades the word-overlap relevance check to catch paraphrases
 - An evaluation engine that wires providers and evaluators together into one structured result per run
 - Dataset-driven evaluation using CSV and Excel
 - Structured logging on every LLM call - prompt sent, response received, latency, eval scores
@@ -38,6 +38,8 @@ This framework is built around that mental model.
 | OpenAI SDK | Secondary LLM provider |
 | Pydantic | Input and output model validation |
 | Pandas | Dataset loading - CSV and Excel |
+| sentence-transformers | Embedding model for semantic similarity |
+| scikit-learn | Cosine similarity computation |
 | python-dotenv | Environment variable configuration |
 | pytest-html | HTML test report |
 | Docker | Isolated test execution environment |
@@ -72,6 +74,7 @@ python-ai-testing-framework/
 |   |-- judge_evaluator.py      # LLM-as-judge semantic evaluation with self-consistency voting
 |   |-- faithfulness_evaluator.py # RAGAS-lite - checks response claims against retrieved context
 |   |-- relevance_evaluator.py  # RAGAS-lite - checks response addresses the prompt
+|   |-- semantic_relevance_evaluator.py # Embedding-based upgrade to relevance - catches paraphrases word-overlap misses
 |   `-- context_relevance_evaluator.py # RAGAS-lite - checks retrieved context is relevant to the prompt
 |
 |-- engine/
@@ -94,6 +97,7 @@ python-ai-testing-framework/
 |   |-- test_judge_eval.py      # Unit tests for judge evaluator - includes before/after comparison
 |   |-- test_faithfulness_evaluator.py # Unit tests for faithfulness evaluator, including faithfulness-vs-hallucination distinction
 |   |-- test_relevance_evaluator.py # Unit tests for relevance evaluator, including possessive-stripping regression test
+|   |-- test_semantic_relevance_evaluator.py # Unit tests for semantic relevance evaluator, pinned against three real calibration cases
 |   |-- test_context_relevance_evaluator.py # Unit tests for context relevance evaluator, including the pinned retrieval-bug example
 |   |-- test_agent_eval.py      # Unit tests for the LangChain agent tool-calling correctness evaluator
 |   |-- test_consistency_eval.py # Integration tests - needs live API key
@@ -212,7 +216,36 @@ Faithfulness: PASS (claim is grounded)
 Relevance:    FAIL (doesn't answer the actual question asked)
 ```
 
-**Known limitation:** possessives are stripped (`"store's"` -> `"store"`) but plurals are not stemmed (`"return"` != `"returns"`) - the same documented-limitation posture as `HallucinationEvaluator`'s negation-blindness. Real stemming is out of scope for a string-overlap mock; the upgrade path is embedding-based similarity once wired to the real API.
+**Known limitation:** possessives are stripped (`"store's"` -> `"store"`) but plurals are not stemmed (`"return"` != `"returns"`) - the same documented-limitation posture as `HallucinationEvaluator`'s negation-blindness. Real stemming is out of scope for a string-overlap mock; `SemanticRelevanceEvaluator` below is the embedding-based upgrade path for the paraphrase side of this problem.
+
+### SemanticRelevanceEvaluator
+Embedding-based upgrade to `RelevanceEvaluator`'s word-overlap approach. Uses sentence embeddings (`all-MiniLM-L6-v2`) and cosine similarity to check whether the response addresses the prompt - catching paraphrases and synonymy that pure word-overlap misses entirely.
+
+**Key distinction:** `RelevanceEvaluator` fails on valid paraphrases that share no vocabulary. This evaluator catches that case by comparing meaning, not literal words.
+
+```
+Prompt:   "What time does the store close?"
+Response: "The shop shuts at 6pm."
+
+RelevanceEvaluator (word-overlap):    FAIL - "store"/"shop", "close"/"shuts"
+                                       share no literal words
+SemanticRelevanceEvaluator (cosine):  PASS - similarity 0.67, correctly
+                                       recognizes this as the same meaning
+```
+
+**Calibration** (three real runs against `all-MiniLM-L6-v2`, threshold set at 0.6 based on these observed scores):
+
+```
+Easy paraphrase, no shared words:              0.67 -> PASS
+Hard paraphrase, different structure/length:   0.75 -> PASS
+Adversarial: shared vocabulary, opposite
+meaning ("refund in 5-7 days" vs
+"refunds not available"):                      0.53 -> FAIL
+```
+
+**Known limitation:** this model captures topical relatedness more strongly than logical negation. Two sentences that share vocabulary but directly contradict each other can still score moderately (~0.5), since embedding similarity responds to topic overlap as well as meaning - the 0.6 threshold is chosen specifically to separate this adversarial case from genuine paraphrases, not an arbitrary default.
+
+**Note on mocking:** unlike every other evaluator in this framework, this one has no meaningful mock/real split. It always runs real local inference - no API call, no cost either way - so a `use_mock` flag would be fake consistency rather than honest design, and is deliberately omitted.
 
 ### ContextRelevanceEvaluator - RAGAS-lite
 Checks whether `retrieved_context` itself is relevant to the prompt - a retrieval-quality check, not a generation-quality check. Scores the proportion of retrieved passages that individually clear a content-word overlap threshold against the prompt.
@@ -256,6 +289,20 @@ Evaluates tool-calling correctness for a small LangChain agent (weather, tempera
 
 **Decision rule:** Use string matching as a fast first gate. Use the judge only when semantic accuracy matters and the cost is justified. In CI, string matching runs on every push. Judge evaluation runs on scheduled or pre-release checks.
 
+### When to use word-overlap vs embedding-based relevance
+
+| Factor | Word-Overlap (RelevanceEvaluator) | Embeddings (SemanticRelevanceEvaluator) |
+|---|---|---|
+| Cost per evaluation | Zero | Zero (local inference) |
+| Latency | < 1ms | ~10-50ms (CPU, local model) |
+| Catches literal keyword matches | Yes | Yes |
+| Catches paraphrases with no shared vocabulary | No | Yes |
+| Catches negation / contradiction | Partially (shared words still overlap) | Weakly (shares the same blind spot) |
+| Needs a model download | No | Yes - one-time (~90MB) |
+| Best for | Fast CI gate, exact-phrasing checks | Catching real paraphrase-shaped relevance failures |
+
+**Decision rule:** neither evaluator is a strict upgrade over the other - they fail differently. Run both. `RelevanceEvaluator` is the near-zero-cost first pass; `SemanticRelevanceEvaluator` catches the paraphrase cases the word-overlap check is structurally blind to. Neither reliably catches negation, which is why that limitation is documented on both rather than treated as solved by adding embeddings.
+
 ### Why self-consistency voting
 
 A single judge call can return different verdicts on the same input across runs. Running the judge 3 times and taking the majority vote reduces variance without a significant cost increase. Three runs at claude-haiku pricing costs approximately $0.0003-0.001 per evaluation - acceptable for pre-release quality gates.
@@ -267,6 +314,8 @@ In production evaluation pipelines, cost is a real constraint. An eval suite run
 ### Why the mock-first approach
 
 The judge evaluator ships with `use_mock=True` by default. The mock simulates realistic judge behavior without requiring API credits. This means the self-consistency logic, cost tracking, latency logging, and the before/after string-match comparison are all fully testable without any external dependency. The real API call is a one-line swap once credentials are configured. The three RAGAS-lite evaluators and the agent evaluator follow the identical pattern - mock-first, cost/latency tracked from the start, `_real_*` methods raising `NotImplementedError` until API credentials are wired in.
+
+`SemanticRelevanceEvaluator` is a deliberate exception to this pattern, not an inconsistency in it: every other evaluator has a genuine mock (free, fake, simplified) vs. real (paid API call) split to toggle. This evaluator has no such split - it always runs real local computation, at zero cost either way. Adding a `use_mock` flag that doesn't actually toggle anything meaningful would be fake consistency rather than honest design, so it's omitted and explained in the class docstring instead.
 
 ### Why RAG evaluation needed three separate evaluators, not one
 
@@ -409,6 +458,7 @@ Unit tests run without any API key. Integration tests need `ANTHROPIC_API_KEY` c
 - Judge evaluator mock simulates but does not replicate real Claude judgment - set `use_mock=False` with a valid API key for production use
 - Tone evaluator is heuristic - can misclassify mixed-tone responses
 - RelevanceEvaluator and ContextRelevanceEvaluator use string-overlap content-word matching - possessives are stripped but plurals are not stemmed ("return" != "returns"); real stemming is out of scope for a mock evaluator
+- SemanticRelevanceEvaluator closes the paraphrase blind spot above via embeddings, but shares the negation-blindness problem: contradictory sentences with shared vocabulary can still score moderately similar (~0.5), since cosine similarity responds to topical overlap as well as meaning - neither the word-overlap nor the embedding approach reliably detects negation
 - ContextRelevanceEvaluator's `passage_relevance_threshold` (0.5) is a coarse per-passage cutoff tuned empirically rather than derived formulaically - very short prompts are more sensitive to single-word incidental matches
 - Integration tests require paid API credits
 - Non-determinism tests may occasionally fail at boundary thresholds due to natural LLM variation - this is expected behaviour, not a framework bug
@@ -419,5 +469,6 @@ Unit tests run without any API key. Integration tests need `ANTHROPIC_API_KEY` c
 
 - **RAG evaluation** - done. FaithfulnessEvaluator, RelevanceEvaluator, and ContextRelevanceEvaluator together form a RAGAS-lite core covering the retrieval and generation halves of a RAG pipeline independently.
 - **Agentic component** - done. A small LangChain agent with tool-calling correctness evaluation (tool selection, argument correctness, sequence correctness, final-answer grounding).
+- **Semantic relevance** - done. SemanticRelevanceEvaluator adds embedding-based cosine similarity as an upgrade path over RelevanceEvaluator's word-overlap approach, closing the no-shared-vocabulary paraphrase gap documented as a known limitation.
 - **Batch evaluation runner** - load full CSV dataset, run all evaluators, generate summary pass rate report
 - **Provider comparison** - run same eval dataset against Claude and GPT-4, compare scores side by side
