@@ -2,7 +2,7 @@
 tools.py
 
 Deterministic, hardcoded tool functions the agent can call. No real API
-calls â€” mock-first, same principle as the rest of this repo's evaluators.
+calls  mock-first, same principle as the rest of this repo's evaluators.
 """
 
 WEATHER_DATA = {

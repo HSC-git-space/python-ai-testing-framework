@@ -1,7 +1,7 @@
 """
 agent_evaluator.py
 
-Evaluates whether an agent's tool-calling behavior was CORRECT â€” a
+Evaluates whether an agent's tool-calling behavior was CORRECT  a
 different problem from judging a single text response. This does NOT
 inherit BaseEvaluator (its evaluate() signature is locked to a plain
 text response + EvalRequest, which doesn't fit an agent trace). Instead
@@ -116,7 +116,7 @@ class AgentEvaluator:
             return EvaluatorScore(
                 evaluator_name="AgentFinalAnswerGrounding",
                 score=0.0, passed=False,
-                reason="No tool calls in trace â€” nothing to ground the answer against.",
+                reason="No tool calls in trace nothing to ground the answer against.",
             )
 
         grounded_count = 0
