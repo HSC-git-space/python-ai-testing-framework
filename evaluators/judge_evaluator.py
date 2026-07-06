@@ -1,4 +1,6 @@
 import time
+import os
+import anthropic
 from evaluators.base_evaluator import BaseEvaluator
 from models.eval_request import EvalRequest
 from models.eval_result import EvaluatorScore
@@ -40,6 +42,7 @@ class JudgeEvaluator(BaseEvaluator):
         self.use_mock = use_mock
         self.total_cost = 0.0
         self.total_latency = 0.0
+        self._client = None
 
     def evaluate(self, response: str, request: EvalRequest) -> EvaluatorScore:
         ground_truth = getattr(request, 'ground_truth', None)
@@ -136,13 +139,26 @@ class JudgeEvaluator(BaseEvaluator):
 
         return {"passed": overall_pass, "reason": reason}
 
-    @staticmethod
-    def _real_judge(prompt: str, response: str, ground_truth: list) -> dict:
-        raise NotImplementedError(
-            "Real judge requires ANTHROPIC_API_KEY. "
-            "Set use_mock=False only after configuring your API key. "
-            "See README for setup instructions."
+    def _get_client(self) -> anthropic.Anthropic:
+        if self._client is None:
+            self._client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        return self._client
+
+    def _real_judge(self, prompt: str, response: str, ground_truth: list) -> dict:
+        client = self._get_client()
+        judge_prompt = self._build_judge_prompt(prompt, response, ground_truth)
+
+        message = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=200,
+            messages=[{"role": "user", "content": judge_prompt}]
         )
+
+        judge_text = message.content[0].text.strip()
+        passed = judge_text.upper().startswith("PASS")
+        reason = judge_text.split("\n", 1)[-1].strip() if "\n" in judge_text else judge_text
+
+        return {"passed": passed, "reason": reason}
 
     def _estimate_cost(self, prompt: str, response: str, ground_truth: list) -> float:
         judge_prompt = self._build_judge_prompt(prompt, response, ground_truth)
