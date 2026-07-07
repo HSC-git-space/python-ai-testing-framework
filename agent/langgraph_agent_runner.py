@@ -181,8 +181,11 @@ def final_answer_node(state: AgentState) -> AgentState:
         f"Original question: {state['user_input']}\n\n"
         f"Tool results:\n{trace_summary}\n\n"
         "Using the tool results above, answer the original question directly "
-        "and concisely. If numbers are involved, use the exact values from "
-        "the tool results, do not estimate or round differently."
+        "and concisely. If numbers are involved, state them exactly as given "
+        "in the tool results, with no comma thousand-separators, no currency "
+        "symbols, and no rounding or reformatting. For example, write 78401.86 "
+        "exactly like that, not 78,401.86 or Rs 78,401.86. You may still "
+        "explain or describe the number in plain words around it."
     )
 
     message = client.messages.create(
@@ -198,7 +201,6 @@ def final_answer_node(state: AgentState) -> AgentState:
 
     state["final_answer"] = final_answer_text
     return state
-
 
 def build_graph():
     graph = StateGraph(AgentState)
